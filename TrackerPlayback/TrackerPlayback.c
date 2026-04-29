@@ -12,12 +12,15 @@ static float _interleavedBuffer[BUFFER_SIZE * 2];
 static void CleanupPlaybackResourcesLocked(void);
 static void NotifyStatusCallback(TrackerPlaybackStatus oldStatus, TrackerPlaybackStatus newStatus);
 static void ReportFatalErrorAndReset(const char* message);
+static void SetLastErrorStateLocked(int errorCode, const char* message);
 static int SetStatusLocked(TrackerPlaybackStatus newStatus, TrackerPlaybackStatus* oldStatus);
 
 void EnsureStateInitialized(void) {
     if (!_playbackState.lockInitialized) {
         InitializeCriticalSection(&_playbackState.lock);
         _playbackState.lockInitialized = 1;
+        _playbackState.lastErrorCode = TRACKER_PLAYBACK_INNO_ERROR_NONE;
+        _playbackState.lastErrorMessage[0] = '\0';
         _playbackState.status = TRACKER_PLAYBACK_STATUS_STOPPED;
     }
 }
@@ -75,6 +78,15 @@ static void CleanupPlaybackResourcesLocked(void) {
     _playbackState.status = TRACKER_PLAYBACK_STATUS_STOPPED;
 }
 
+static void SetLastErrorStateLocked(int errorCode, const char* message) {
+    _playbackState.lastErrorCode = errorCode;
+    if (message && message[0] != '\0') {
+        StringCchCopyA(_playbackState.lastErrorMessage, TRACKER_PLAYBACK_LAST_ERROR_MESSAGE_CAPACITY, message);
+    } else {
+        _playbackState.lastErrorMessage[0] = '\0';
+    }
+}
+
 static void NotifyStatusCallback(TrackerPlaybackStatus oldStatus, TrackerPlaybackStatus newStatus) {
     TrackerPlaybackStatusCallback callback;
 
@@ -108,6 +120,7 @@ static void ReportFatalErrorAndReset(const char* message) {
 
     EnterStateLock();
     callback = _playbackState.errorCallback;
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_ENGINE_FAILURE, message);
     oldStatus = _playbackState.status;
     shouldNotifyStopped = (oldStatus != TRACKER_PLAYBACK_STATUS_STOPPED);
     if (_playbackState.threadHandle && _playbackState.threadId == GetCurrentThreadId()) {
@@ -321,11 +334,15 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Play(const void* 
 
     EnterStateLock();
     if (_playbackState.status != TRACKER_PLAYBACK_STATUS_STOPPED) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_ALREADY_ACTIVE, "Playback is already active.");
         LeaveStateLock();
         return 0;
     }
 
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_NONE, NULL);
+
     if (!CopyModuleBufferLocked(xmData, xmDataSize)) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_OUT_OF_MEMORY, "Failed to copy the module data into the playback buffer.");
         LeaveStateLock();
         return 0;
     }
@@ -333,6 +350,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Play(const void* 
     _playbackState.stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
     _playbackState.pauseEvent = CreateEventW(NULL, TRUE, TRUE, NULL);
     if (!_playbackState.stopEvent || !_playbackState.pauseEvent) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_PLAYBACK_START_FAILED, "Failed to create the playback synchronization events.");
         CleanupPlaybackResourcesLocked();
         LeaveStateLock();
         return 0;
@@ -340,9 +358,11 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Play(const void* 
 
     _playbackState.loopForever = loopForever ? 1 : 0;
     shouldNotifyPlaying = SetStatusLocked(TRACKER_PLAYBACK_STATUS_PLAYING, &oldStatus);
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_NONE, NULL);
 
     threadHandleValue = _beginthreadex(NULL, 0, PlaybackThreadProc, NULL, 0, (unsigned*) &_playbackState.threadId);
     if (threadHandleValue == 0) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_PLAYBACK_START_FAILED, "Failed to create the playback worker thread.");
         CleanupPlaybackResourcesLocked();
         LeaveStateLock();
         return 0;
@@ -364,6 +384,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Stop(void) {
 
     EnterStateLock();
     if (_playbackState.status == TRACKER_PLAYBACK_STATUS_STOPPED) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_INVALID_STATE, "Playback is already stopped.");
         LeaveStateLock();
         return 0;
     }
@@ -377,6 +398,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Stop(void) {
     oldStatus = _playbackState.status;
     threadHandle = _playbackState.threadHandle;
     threadId = _playbackState.threadId;
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_NONE, NULL);
     LeaveStateLock();
 
     if (threadHandle && threadId != GetCurrentThreadId()) {
@@ -399,6 +421,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Pause(void) {
 
     EnterStateLock();
     if (_playbackState.status != TRACKER_PLAYBACK_STATUS_PLAYING || !_playbackState.pauseEvent) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_INVALID_STATE, "Playback is not currently playing.");
         LeaveStateLock();
         return 0;
     }
@@ -408,6 +431,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Pause(void) {
         Pa_StopStream(_playbackState.streamHandle);
     }
     shouldNotifyPaused = SetStatusLocked(TRACKER_PLAYBACK_STATUS_PAUSED, &oldStatus);
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_NONE, NULL);
     LeaveStateLock();
     if (shouldNotifyPaused) {
         NotifyStatusCallback(oldStatus, TRACKER_PLAYBACK_STATUS_PAUSED);
@@ -422,6 +446,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Resume(void) {
 
     EnterStateLock();
     if (_playbackState.status != TRACKER_PLAYBACK_STATUS_PAUSED || !_playbackState.pauseEvent) {
+        SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_INVALID_STATE, "Playback is not currently paused.");
         LeaveStateLock();
         return 0;
     }
@@ -437,6 +462,7 @@ TRACKER_PLAYBACK_API int TRACKER_PLAYBACK_CALL TrackerPlayback_Resume(void) {
 
     SetEvent(_playbackState.pauseEvent);
     shouldNotifyPlaying = SetStatusLocked(TRACKER_PLAYBACK_STATUS_PLAYING, &oldStatus);
+    SetLastErrorStateLocked(TRACKER_PLAYBACK_INNO_ERROR_NONE, NULL);
     LeaveStateLock();
     if (shouldNotifyPlaying) {
         NotifyStatusCallback(oldStatus, TRACKER_PLAYBACK_STATUS_PLAYING);

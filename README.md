@@ -1,5 +1,7 @@
 # Tracker Player
 
+## Part of this plugin is developed using ChatGPT-5.4 and its stability cannot be guaranteed. There is a high probability that the author will not provide further updates for it.
+
 Tracker Player is a lightweight Windows tracker-module playback solution built around a reusable native playback library. The project now consists of three layers:
 
 - TrackerPlayback — a native DLL that exposes a small C playback API
@@ -99,12 +101,20 @@ The DLL exposes the following functions:
 - `TrackerPlayback_Stop`
 - `TrackerPlayback_Pause`
 - `TrackerPlayback_Resume`
+- `TrackerPlayback_Inno_PlayFile`
+- `TrackerPlayback_Inno_Stop`
+- `TrackerPlayback_Inno_Pause`
+- `TrackerPlayback_Inno_Resume`
+- `TrackerPlayback_Inno_GetStatus`
+- `TrackerPlayback_Inno_GetLastErrorCode`
 
 `TrackerPlayback_Play` accepts:
 
 - a pointer to module data in memory
 - the size of that buffer
 - a loop flag indicating whether playback should repeat forever
+
+The `TrackerPlayback_Inno_*` exports are intended for installers and other scripting hosts that prefer `stdcall` entry points and file-path based playback.
 
 ## Usage
 
@@ -147,8 +157,64 @@ Current implementation supports:
 - the test frontend is written in C# / WPF
 - playback depends on `libopenmpt` and `PortAudio`
 - the repository includes Visual Studio project files for the native player, native DLL, and WPF test app
+- initialize the bundled OpenMPT dependency before building:
+  `git submodule update --init --recursive`
 
 When building the full solution, ensure the DLL is available beside the consuming executable or test application.
+
+### One-command Inno DLL build
+
+If you only need the installer-facing DLL package, use:
+
+`scripts\Build-InnoDll.cmd`
+
+Do not build `TrackerPlayback.vcxproj` by itself before the dependency step has run. The DLL links against libraries generated from the bundled OpenMPT tree, and those `.lib` files are produced by the script first.
+
+Useful variants:
+
+- `scripts\Build-InnoDll.cmd -Platform x86`
+- `scripts\Build-InnoDll.cmd -Platform x64`
+- `scripts\Build-InnoDll.cmd -Platform both`
+
+The script will:
+
+- locate Visual Studio through `vswhere`
+- normalize the child-process environment before launching MSBuild
+- build `libopenmpt-small`
+- build the `portaudio` target from `libopenmpt`
+- build the `TrackerPlayback` DLL with the Inno `stdcall` exports
+- package ready-to-use outputs under `artifacts\inno`
+
+Generated packages:
+
+- `artifacts\inno\x86\TrackerPlayback.dll`
+- `artifacts\inno\x64\TrackerPlayback.dll`
+- `artifacts\inno\TrackerPlayback-Inno-x86.zip`
+- `artifacts\inno\TrackerPlayback-Inno-x64.zip`
+
+Each package also includes:
+
+- `InnoSetupTrackerPlayback.iss.inc`
+- `InnoSetupExample.iss`
+
+## Inno Setup
+
+`TrackerPlayback.dll` now includes a second, installer-friendly API surface:
+
+- `TrackerPlayback_Inno_PlayFile(const wchar_t* modulePath, int loopForever)`
+- `TrackerPlayback_Inno_Stop(void)`
+- `TrackerPlayback_Inno_Pause(void)`
+- `TrackerPlayback_Inno_Resume(void)`
+- `TrackerPlayback_Inno_GetStatus(void)`
+- `TrackerPlayback_Inno_GetLastErrorCode(void)`
+
+These exports are:
+
+- `stdcall`
+- path-based instead of memory-buffer based
+- exported with undecorated names so they can be bound from Inno Setup using their plain identifier
+
+Use [InnoSetupTrackerPlayback.iss.inc](InnoSetupTrackerPlayback.iss.inc) to import the declarations into your setup script, or start from [InnoSetupExample.iss](InnoSetupExample.iss).
 
 ## License
 

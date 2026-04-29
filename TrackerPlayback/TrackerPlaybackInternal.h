@@ -6,6 +6,7 @@
 
 #define BUFFER_SIZE 480
 #define SAMPLE_RATE 48000
+#define TRACKER_PLAYBACK_LAST_ERROR_MESSAGE_CAPACITY 1024
 
 typedef struct PlaybackState {
     CRITICAL_SECTION lock;
@@ -21,6 +22,8 @@ typedef struct PlaybackState {
     int paInitialized;
     int isInterleaved;
     int loopForever;
+    int lastErrorCode;
+    CHAR lastErrorMessage[TRACKER_PLAYBACK_LAST_ERROR_MESSAGE_CAPACITY];
     TrackerPlaybackStatus status;
     TrackerPlaybackErrorCallback errorCallback;
     TrackerPlaybackStatusCallback statusCallback;

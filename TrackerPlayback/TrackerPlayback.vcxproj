@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClCompile Include="DllMain.c" />
     <ClCompile Include="TrackerPlayback.c" />
+    <ClCompile Include="TrackerPlaybackInno.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="TrackerPlayback.h" />
