@@ -183,6 +183,7 @@ The script will:
 - build `libopenmpt-small`
 - build the `portaudio` target from `libopenmpt`
 - build the `TrackerPlayback` DLL with the Inno `stdcall` exports
+- force the OpenMPT solution tree to use the static MSVC runtime (`/MT` or `/MTd`)
 - package ready-to-use outputs under `artifacts\inno`
 
 Generated packages:

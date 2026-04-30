@@ -61,6 +61,12 @@ The expected dependency outputs include:
 - `openmpt-stb_vorbis.lib`
 - `openmpt-portaudio.lib`
 
+The OpenMPT Visual Studio tree is intentionally overridden to use the static MSVC runtime through:
+
+- [TrackerPlayback/ThirdParty/openmpt/build/vs2022win10/Directory.Build.props](TrackerPlayback\ThirdParty\openmpt\build\vs2022win10\Directory.Build.props)
+
+Do not casually remove that override. It exists so the final playback DLL depends as little as possible on external MSVC runtime DLLs.
+
 For x64 they are expected under:
 
 - `TrackerPlayback/ThirdParty/openmpt/build/lib/vs2022win10/x86_64/Release`
